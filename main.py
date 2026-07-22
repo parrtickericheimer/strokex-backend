@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import os
@@ -6,6 +6,8 @@ from supabase import create_client, Client
 from models import GameSessionCreate, DailyPrescription
 from ai_engine import calculate_next_prescription
 from datetime import date
+from pydantic import BaseModel
+from fastapi.responses import HTMLResponse
 
 load_dotenv()
 
@@ -27,6 +29,118 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 @app.get("/")
 def read_root():
     return {"status": "ok", "message": "Welcome to StrokeX Backend"}
+
+@app.get("/camera", response_class=HTMLResponse)
+def get_camera_html():
+    return """
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
+      <style>
+        body { margin: 0; padding: 0; overflow: hidden; background-color: #000; }
+        #output_canvas { width: 100vw; height: 100vh; object-fit: cover; transform: scaleX(-1); }
+        #input_video { display: none; }
+      </style>
+      <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+      <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+      <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+    </head>
+    <body>
+      <video id="input_video" autoplay playsinline></video>
+      <canvas id="output_canvas"></canvas>
+      <script>
+        const videoElement = document.getElementById('input_video');
+        const canvasElement = document.getElementById('output_canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+
+        function sendToApp(data) {
+          window.ReactNativeWebView.postMessage(JSON.stringify(data));
+        }
+
+        // We determine mode via URL params: ?mode=hands or ?mode=pose
+        const urlParams = new URLSearchParams(window.location.search);
+        const mode = urlParams.get('mode') || 'hands';
+
+        if (mode === 'hands') {
+            const hands = new Hands({locateFile: (file) => {
+              return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+            }});
+            hands.setOptions({
+              maxNumHands: 2,
+              modelComplexity: 1,
+              minDetectionConfidence: 0.5,
+              minTrackingConfidence: 0.5
+            });
+
+            hands.onResults((results) => {
+              canvasElement.width = videoElement.videoWidth;
+              canvasElement.height = videoElement.videoHeight;
+              canvasCtx.save();
+              canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+              canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+              canvasCtx.restore();
+              
+              if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                sendToApp({ type: 'hands', landmarks: results.multiHandLandmarks });
+              } else {
+                sendToApp({ type: 'hands', landmarks: [] });
+              }
+            });
+
+            const camera = new Camera(videoElement, {
+              onFrame: async () => {
+                await hands.send({image: videoElement});
+              },
+              width: 640,
+              height: 480,
+              facingMode: "user"
+            });
+            camera.start();
+        } else {
+            const pose = new Pose({locateFile: (file) => {
+              return `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`;
+            }});
+            pose.setOptions({
+              modelComplexity: 1,
+              smoothLandmarks: true,
+              minDetectionConfidence: 0.5,
+              minTrackingConfidence: 0.5
+            });
+
+            pose.onResults((results) => {
+              canvasElement.width = videoElement.videoWidth;
+              canvasElement.height = videoElement.videoHeight;
+              canvasCtx.save();
+              canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+              canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+              canvasCtx.restore();
+              
+              if (results.poseLandmarks) {
+                sendToApp({ type: 'pose', landmarks: results.poseLandmarks });
+              } else {
+                sendToApp({ type: 'pose', landmarks: null });
+              }
+            });
+
+            const camera = new Camera(videoElement, {
+              onFrame: async () => {
+                await pose.send({image: videoElement});
+              },
+              width: 640,
+              height: 480,
+              facingMode: "user"
+            });
+            camera.start();
+        }
+
+        window.onload = () => {
+           sendToApp({ type: 'ready' });
+        };
+      </script>
+    </body>
+    </html>
+    """
 
 @app.post("/sessions/")
 def create_game_session(session: GameSessionCreate):
