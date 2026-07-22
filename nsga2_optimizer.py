@@ -200,9 +200,9 @@ def generate_plan(
         best_x = np.array([default_reps, default_reps, default_reps])
         best_f = np.array([0, 0])
 
-    potion_reps = int(np.round(best_x[0]))
-    shield_reps = int(np.round(best_x[1]))
-    rhythm_reps = int(np.round(best_x[2]))
+    potion_reps = min(25, int(np.round(best_x[0])))
+    shield_reps = min(25, int(np.round(best_x[1])))
+    rhythm_reps = min(25, int(np.round(best_x[2])))
 
     return {
         "potion_reps": potion_reps,

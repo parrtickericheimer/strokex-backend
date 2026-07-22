@@ -213,6 +213,8 @@ def generate_daily_plan(patient_id: str):
     for g in ["potion", "shield", "rhythm", "rapid"]:
         if g not in plan:
             plan[g] = {"reps": 15, "level": 1, "target_rom": 1.0}
+        else:
+            plan[g]["reps"] = min(25, plan[g].get("reps", 15))
 
     # Save to DB
     new_prescription = {
