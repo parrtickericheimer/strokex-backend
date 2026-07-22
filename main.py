@@ -149,6 +149,28 @@ def create_game_session(session: GameSessionCreate):
     response = supabase.table("game_sessions").insert(data).execute()
     return {"status": "success", "data": response.data}
 
+@app.get("/sessions/recent/{patient_id}")
+def get_recent_sessions(patient_id: str):
+    """ Fetch the patient's recent game sessions """
+    res = supabase.table("game_sessions").select("*").eq("patient_id", patient_id).order("created_at", desc=True).limit(10).execute()
+    return {"status": "success", "data": res.data}
+
+@app.get("/sessions/stats/{patient_id}")
+def get_session_stats(patient_id: str):
+    """ Calculate aggregated stats for the patient """
+    res = supabase.table("game_sessions").select("*").eq("patient_id", patient_id).order("created_at", desc=True).limit(20).execute()
+    sessions = res.data
+    if not sessions:
+        return {"status": "success", "data": {"rom": 0, "accuracy": 0, "fatigue": 0}}
+    
+    avg_score = sum(s.get("performance_score", 0) for s in sessions) / len(sessions)
+    # Estimate stats based on performance score for the MVP demo
+    rom = min(0.95, avg_score / 1000.0) 
+    accuracy = min(0.98, avg_score / 800.0)
+    fatigue = max(0.1, 1.0 - (avg_score / 1200.0))
+    
+    return {"status": "success", "data": {"rom": rom, "accuracy": accuracy, "fatigue": fatigue}}
+
 @app.post("/generate-plan/{patient_id}")
 def generate_daily_plan(patient_id: str):
     """ Fetch past 3 days of sessions and run NSGA-II to prescribe new plan """
